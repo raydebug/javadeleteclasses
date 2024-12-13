@@ -1,3 +1,5 @@
+package com.example.tools;
+
 public class ClassDeleter {
     public static void main(String[] args) {
         try {
