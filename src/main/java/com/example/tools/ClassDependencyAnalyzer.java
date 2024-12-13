@@ -18,7 +18,7 @@ public class ClassDependencyAnalyzer {
     private final Map<String, Path> classToPathMap = new HashMap<>();
     private final Map<String, String> classesToDelete = new HashMap<>();
 
-    public void analyzeAndDeleteClass(String rootPath, String targetClassName) throws IOException {
+    public void analyzeAndDeleteClasses(String rootPath, Set<String> targetClassNames) throws IOException {
         // 1. Scan all Java files
         System.out.println("\n=== Scanning Java Files ===");
         scanJavaFiles(new File(rootPath));
@@ -32,7 +32,7 @@ public class ClassDependencyAnalyzer {
         
         // 3. Find classes to delete
         System.out.println("\n=== Analyzing Classes to Delete ===");
-        findClassesToDelete(targetClassName);
+        findClassesToDelete(targetClassNames);
         System.out.println("Classes to delete: " + classesToDelete);
         
         // 4. Execute deletion
@@ -97,17 +97,61 @@ public class ClassDependencyAnalyzer {
         }
     }
 
-    private void findClassesToDelete(String targetClassName) {
+    private void findClassesToDelete(Set<String> targetClassNames) {
         Set<String> visited = new HashSet<>();
         Queue<String> queue = new LinkedList<>();
-        queue.offer(targetClassName);
-        Path targetPath = classToPathMap.get(targetClassName);
-        if (targetPath != null) {
-            classesToDelete.put(targetClassName, targetPath.toString());
+        
+        // Initialize with all target classes
+        for (String targetClassName : targetClassNames) {
+            queue.offer(targetClassName);
+            Path targetPath = classToPathMap.get(targetClassName);
+            if (targetPath != null) {
+                classesToDelete.put(targetClassName, targetPath.toString());
+            }
         }
 
         // Build reverse dependency graph
-        System.out.println("Building reverse dependency graph...");
+        Map<String, Set<String>> reverseDependencies = buildReverseDependencyGraph();
+
+        // Find all dependencies of target classes
+        Set<String> allDependenciesOfTargets = new HashSet<>();
+        for (String targetClassName : targetClassNames) {
+            findAllDependencies(targetClassName, allDependenciesOfTargets, new HashSet<>());
+        }
+
+        // Check each dependency
+        for (String dependency : allDependenciesOfTargets) {
+            Set<String> usedBy = reverseDependencies.getOrDefault(dependency, new HashSet<>());
+            System.out.println("\nChecking dependency: " + dependency);
+            System.out.println("Used by: " + usedBy);
+            
+            boolean onlyUsedByTargetTrees = true;
+            for (String user : usedBy) {
+                if (!allDependenciesOfTargets.contains(user) && !targetClassNames.contains(user)) {
+                    System.out.println("Found external user: " + user);
+                    onlyUsedByTargetTrees = false;
+                    break;
+                }
+            }
+
+            if (onlyUsedByTargetTrees) {
+                System.out.println("=> Marked for deletion");
+                Path filePath = classToPathMap.get(dependency);
+                if (filePath != null) {
+                    classesToDelete.put(dependency, filePath.toString());
+                    System.out.println("   File: " + filePath);
+                }
+            } else {
+                System.out.println("=> Kept (used by classes outside target trees)");
+            }
+        }
+
+        // Remove tool classes from deletion list
+        classesToDelete.keySet().removeIf(className -> 
+            className.startsWith("com.example.tools."));
+    }
+
+    private Map<String, Set<String>> buildReverseDependencyGraph() {
         Map<String, Set<String>> reverseDependencies = new HashMap<>();
         for (Map.Entry<String, Set<String>> entry : dependencyGraph.entrySet()) {
             String className = entry.getKey();
@@ -116,46 +160,7 @@ public class ClassDependencyAnalyzer {
                     .add(className);
             }
         }
-        System.out.println("Reverse dependency graph:");
-        reverseDependencies.forEach((k, v) -> System.out.println(k + " is used by: " + v));
-
-        // Find all dependencies of target class
-        System.out.println("\nFinding all dependencies of target class " + targetClassName + "...");
-        Set<String> allDependenciesOfTarget = new HashSet<>();
-        findAllDependencies(targetClassName, allDependenciesOfTarget, new HashSet<>());
-        System.out.println("All dependencies of target class: " + allDependenciesOfTarget);
-
-        // Check each dependency
-        System.out.println("\nChecking if each dependency is only used by target class tree...");
-        for (String dependency : allDependenciesOfTarget) {
-            Set<String> usedBy = reverseDependencies.getOrDefault(dependency, new HashSet<>());
-            System.out.println("\nChecking dependency: " + dependency);
-            System.out.println("Used by: " + usedBy);
-            
-            boolean onlyUsedByTargetTree = true;
-            for (String user : usedBy) {
-                if (!allDependenciesOfTarget.contains(user) && !user.equals(targetClassName)) {
-                    System.out.println("Found external user: " + user);
-                    onlyUsedByTargetTree = false;
-                    break;
-                }
-            }
-
-            if (onlyUsedByTargetTree) {
-                System.out.println("=> Marked for deletion");
-                Path filePath = classToPathMap.get(dependency);
-                if (filePath != null) {
-                    classesToDelete.put(dependency, filePath.toString());
-                    System.out.println("   File: " + filePath);
-                }
-            } else {
-                System.out.println("=> Kept (used by classes outside target tree)");
-            }
-        }
-
-        // Remove tool classes from deletion list
-        classesToDelete.keySet().removeIf(className -> 
-            className.startsWith("com.example.tools."));
+        return reverseDependencies;
     }
 
     private void findAllDependencies(String className, Set<String> allDependencies, Set<String> visited) {

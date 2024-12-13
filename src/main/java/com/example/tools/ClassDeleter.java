@@ -1,15 +1,19 @@
 package com.example.tools;
 
+import java.util.HashSet;
+import java.util.Set;
+
 public class ClassDeleter {
     public static void main(String[] args) {
         try {
-            // Use current project's src/main/java directory
             String projectRoot = System.getProperty("user.dir") + "/src/main/java";
-            String classToDelete = "com.example.test.TestClass";
+            Set<String> classesToDelete = new HashSet<>();
+            classesToDelete.add("com.example.test.TestClass");
+            classesToDelete.add("com.example.test.TestClassTwo");
             
             System.out.println("Scanning directory: " + projectRoot);
             ClassDependencyAnalyzer analyzer = new ClassDependencyAnalyzer();
-            analyzer.analyzeAndDeleteClass(projectRoot, classToDelete);
+            analyzer.analyzeAndDeleteClasses(projectRoot, classesToDelete);
             
         } catch (Exception e) {
             e.printStackTrace();
