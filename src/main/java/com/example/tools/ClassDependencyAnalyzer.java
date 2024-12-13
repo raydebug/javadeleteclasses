@@ -150,8 +150,21 @@ public class ClassDependencyAnalyzer {
         @Override
         public void visit(ClassOrInterfaceDeclaration n, Void arg) {
             // 收集继承和实现的接口
-            n.getExtendedTypes().forEach(t -> addDependency(t.resolve().getQualifiedName()));
-            n.getImplementedTypes().forEach(t -> addDependency(t.resolve().getQualifiedName()));
+            n.getExtendedTypes().forEach(t -> {
+                try {
+                    addDependency(t.resolve().describe());
+                } catch (Exception e) {
+                    addDependency(t.getNameAsString());
+                }
+            });
+            
+            n.getImplementedTypes().forEach(t -> {
+                try {
+                    addDependency(t.resolve().describe());
+                } catch (Exception e) {
+                    addDependency(t.getNameAsString());
+                }
+            });
             
             // 收集字段类型
             n.getFields().forEach(field -> 
@@ -169,10 +182,14 @@ public class ClassDependencyAnalyzer {
             n.getMethods().forEach(method -> {
                 try {
                     addDependency(method.getType().resolve().describe());
-                    method.getParameters().forEach(param -> 
-                        addDependency(param.getType().resolve().describe()));
+                    method.getParameters().forEach(param -> {
+                        try {
+                            addDependency(param.getType().resolve().describe());
+                        } catch (Exception e) {
+                            addDependency(param.getType().asString());
+                        }
+                    });
                 } catch (Exception e) {
-                    // 如果无法解析，使用简单类名
                     addDependency(method.getType().asString());
                     method.getParameters().forEach(param -> 
                         addDependency(param.getType().asString()));
