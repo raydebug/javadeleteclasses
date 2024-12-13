@@ -84,40 +84,30 @@ public class ClassDependencyAnalyzer {
         queue.offer(targetClassName);
         classesToDelete.add(targetClassName);
 
-        // 第一步：找出所有直接和间接依赖
+        // 构建反向依赖图（谁使用了这个类）
         Map<String, Set<String>> reverseDependencies = new HashMap<>();
         for (Map.Entry<String, Set<String>> entry : dependencyGraph.entrySet()) {
             String className = entry.getKey();
-            Set<String> dependencies = entry.getValue();
-            
-            for (String dependency : dependencies) {
+            for (String dependency : entry.getValue()) {
                 reverseDependencies.computeIfAbsent(dependency, k -> new HashSet<>())
                     .add(className);
             }
         }
 
-        // 第二步：递归检查每个依赖是否只被目标类树使用
+        // 递归检查依赖树
         while (!queue.isEmpty()) {
             String currentClass = queue.poll();
             if (visited.contains(currentClass)) continue;
             visited.add(currentClass);
 
+            // 获取当前类的所有依赖
             Set<String> dependencies = dependencyGraph.getOrDefault(currentClass, new HashSet<>());
             for (String dependency : dependencies) {
                 if (classesToDelete.contains(dependency)) continue;
 
-                // 检查这个依赖是否只被已标记删除的类使用
+                // 检查这个依赖是否只被已标记要删除的类使用
                 Set<String> usedBy = reverseDependencies.getOrDefault(dependency, new HashSet<>());
-                boolean onlyUsedByDeletedClasses = true;
-                
-                for (String user : usedBy) {
-                    if (!classesToDelete.contains(user)) {
-                        onlyUsedByDeletedClasses = false;
-                        break;
-                    }
-                }
-
-                if (onlyUsedByDeletedClasses) {
+                if (isOnlyUsedByDeletedClasses(dependency, usedBy)) {
                     classesToDelete.add(dependency);
                     queue.offer(dependency);
                 }
@@ -127,6 +117,21 @@ public class ClassDependencyAnalyzer {
         // 从删除列表中移除工具类
         classesToDelete.removeIf(className -> 
             className.startsWith("com.example.tools."));
+    }
+
+    private boolean isOnlyUsedByDeletedClasses(String className, Set<String> usedBy) {
+        // 如果没有任何类使用这个类，也应该删除它
+        if (usedBy.isEmpty()) {
+            return true;
+        }
+
+        // 检查是否所有使用这个类的类都已经被标记为删除
+        for (String user : usedBy) {
+            if (!classesToDelete.contains(user)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void deleteClasses(String rootPath) throws IOException {
