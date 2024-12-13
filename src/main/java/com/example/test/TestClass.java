@@ -1,7 +1,7 @@
 package com.example.test;
 
 public class TestClass {
-    private TestDependency dependency;
+    private TestDependency dependency = new TestDependency();
     
     public void test() {
         dependency.doSomething();

@@ -18,15 +18,23 @@ public class ClassDependencyAnalyzer {
 
     public void analyzeAndDeleteClass(String rootPath, String targetClassName) throws IOException {
         // 1. 扫描所有Java文件
+        System.out.println("\n=== 开始扫描Java文件 ===");
         scanJavaFiles(new File(rootPath));
+        System.out.println("找到的所有类: " + allClasses);
         
         // 2. 构建依赖图
+        System.out.println("\n=== 构建依赖图 ===");
         buildDependencyGraph(rootPath);
+        System.out.println("依赖关系图:");
+        dependencyGraph.forEach((k, v) -> System.out.println(k + " -> " + v));
         
         // 3. 找出需要删除的类
+        System.out.println("\n=== 分析需要删除的类 ===");
         findClassesToDelete(targetClassName);
+        System.out.println("将要删除的类: " + classesToDelete);
         
         // 4. 执行删除操作
+        System.out.println("\n=== 执行删除操作 ===");
         deleteClasses(rootPath);
     }
 
@@ -84,7 +92,8 @@ public class ClassDependencyAnalyzer {
         queue.offer(targetClassName);
         classesToDelete.add(targetClassName);
 
-        // 构建反向依赖图（谁使用了这个类）
+        // 构建反向依赖图
+        System.out.println("构建反向依赖图...");
         Map<String, Set<String>> reverseDependencies = new HashMap<>();
         for (Map.Entry<String, Set<String>> entry : dependencyGraph.entrySet()) {
             String className = entry.getKey();
@@ -93,25 +102,36 @@ public class ClassDependencyAnalyzer {
                     .add(className);
             }
         }
+        System.out.println("反向依赖关系图:");
+        reverseDependencies.forEach((k, v) -> System.out.println(k + " 被以下类使用: " + v));
 
-        // 首先找出目标类的所有依赖（直接和间接的）
+        // 找出目标类的所有依赖
+        System.out.println("\n查找目标类 " + targetClassName + " 的所有依赖...");
         Set<String> allDependenciesOfTarget = new HashSet<>();
         findAllDependencies(targetClassName, allDependenciesOfTarget, new HashSet<>());
+        System.out.println("目标类的所有依赖: " + allDependenciesOfTarget);
 
-        // 检查每个依赖是否只被目标类及其依赖树使用
+        // 检查每个依赖
+        System.out.println("\n检查每个依赖是否只被目标类树使用...");
         for (String dependency : allDependenciesOfTarget) {
             Set<String> usedBy = reverseDependencies.getOrDefault(dependency, new HashSet<>());
-            boolean onlyUsedByTargetTree = true;
+            System.out.println("\n检查依赖: " + dependency);
+            System.out.println("被以下类使用: " + usedBy);
             
+            boolean onlyUsedByTargetTree = true;
             for (String user : usedBy) {
                 if (!allDependenciesOfTarget.contains(user) && !user.equals(targetClassName)) {
+                    System.out.println("发现外部使用者: " + user);
                     onlyUsedByTargetTree = false;
                     break;
                 }
             }
 
             if (onlyUsedByTargetTree) {
+                System.out.println("=> 标记为删除");
                 classesToDelete.add(dependency);
+            } else {
+                System.out.println("=> 保留（被目标类树之外的类使用）");
             }
         }
 
