@@ -18,24 +18,24 @@ public class ClassDependencyAnalyzer {
     private final Set<String> classesToDelete = new HashSet<>();
 
     public void analyzeAndDeleteClass(String rootPath, String targetClassName) throws IOException {
-        // 1. 扫描所有Java文件
-        System.out.println("\n=== 开始扫描Java文件 ===");
+        // 1. Scan all Java files
+        System.out.println("\n=== Scanning Java Files ===");
         scanJavaFiles(new File(rootPath));
-        System.out.println("找到的所有类: " + allClasses);
+        System.out.println("Found classes: " + allClasses);
         
-        // 2. 构建依赖图
-        System.out.println("\n=== 构建依赖图 ===");
+        // 2. Build dependency graph
+        System.out.println("\n=== Building Dependency Graph ===");
         buildDependencyGraph(rootPath);
-        System.out.println("依赖关系图:");
+        System.out.println("Dependency graph:");
         dependencyGraph.forEach((k, v) -> System.out.println(k + " -> " + v));
         
-        // 3. 找出需要删除的类
-        System.out.println("\n=== 分析需要删除的类 ===");
+        // 3. Find classes to delete
+        System.out.println("\n=== Analyzing Classes to Delete ===");
         findClassesToDelete(targetClassName);
-        System.out.println("将要删除的类: " + classesToDelete);
+        System.out.println("Classes to delete: " + classesToDelete);
         
-        // 4. 执行删除操作
-        System.out.println("\n=== 执行删除操作 ===");
+        // 4. Execute deletion
+        System.out.println("\n=== Executing Deletion ===");
         deleteClasses(rootPath);
     }
 
@@ -93,8 +93,8 @@ public class ClassDependencyAnalyzer {
         queue.offer(targetClassName);
         classesToDelete.add(targetClassName);
 
-        // 构建反向依赖图
-        System.out.println("构建反向依赖图...");
+        // Build reverse dependency graph
+        System.out.println("Building reverse dependency graph...");
         Map<String, Set<String>> reverseDependencies = new HashMap<>();
         for (Map.Entry<String, Set<String>> entry : dependencyGraph.entrySet()) {
             String className = entry.getKey();
@@ -103,40 +103,40 @@ public class ClassDependencyAnalyzer {
                     .add(className);
             }
         }
-        System.out.println("反向依赖关系图:");
-        reverseDependencies.forEach((k, v) -> System.out.println(k + " 被以下类使用: " + v));
+        System.out.println("Reverse dependency graph:");
+        reverseDependencies.forEach((k, v) -> System.out.println(k + " is used by: " + v));
 
-        // 找出目标类的所有依赖
-        System.out.println("\n查找目标类 " + targetClassName + " 的所有依赖...");
+        // Find all dependencies of target class
+        System.out.println("\nFinding all dependencies of target class " + targetClassName + "...");
         Set<String> allDependenciesOfTarget = new HashSet<>();
         findAllDependencies(targetClassName, allDependenciesOfTarget, new HashSet<>());
-        System.out.println("目标类的所有依赖: " + allDependenciesOfTarget);
+        System.out.println("All dependencies of target class: " + allDependenciesOfTarget);
 
-        // 检查每个依赖
-        System.out.println("\n检查每个依赖是否只被目标类树使用...");
+        // Check each dependency
+        System.out.println("\nChecking if each dependency is only used by target class tree...");
         for (String dependency : allDependenciesOfTarget) {
             Set<String> usedBy = reverseDependencies.getOrDefault(dependency, new HashSet<>());
-            System.out.println("\n检查依赖: " + dependency);
-            System.out.println("被以下类使用: " + usedBy);
+            System.out.println("\nChecking dependency: " + dependency);
+            System.out.println("Used by: " + usedBy);
             
             boolean onlyUsedByTargetTree = true;
             for (String user : usedBy) {
                 if (!allDependenciesOfTarget.contains(user) && !user.equals(targetClassName)) {
-                    System.out.println("发现外部使用者: " + user);
+                    System.out.println("Found external user: " + user);
                     onlyUsedByTargetTree = false;
                     break;
                 }
             }
 
             if (onlyUsedByTargetTree) {
-                System.out.println("=> 标记为删除");
+                System.out.println("=> Marked for deletion");
                 classesToDelete.add(dependency);
             } else {
-                System.out.println("=> 保留（被目标类树之外的类使用）");
+                System.out.println("=> Kept (used by classes outside target tree)");
             }
         }
 
-        // 从删除列表中移除工具类
+        // Remove tool classes from deletion list
         classesToDelete.removeIf(className -> 
             className.startsWith("com.example.tools."));
     }
@@ -159,7 +159,7 @@ public class ClassDependencyAnalyzer {
             Path classFile = Paths.get(rootPath, relativePath);
             if (Files.exists(classFile)) {
                 Files.delete(classFile);
-                System.out.println("已删除类文件: " + classFile);
+                System.out.println("Deleted class file: " + classFile);
             }
         }
     }
@@ -177,18 +177,18 @@ public class ClassDependencyAnalyzer {
 
         @Override
         public void visit(ClassOrInterfaceDeclaration n, Void arg) {
-            // 收集字段声明中的类型
+            // Collect field declarations
             n.getFields().forEach(field -> {
-                // 获取字段类型
+                // Get field type
                 String fieldType = field.getElementType().asString();
                 addDependency(fieldType);
 
-                // 获取字段初始化中的类型
+                // Get types from field initialization
                 field.getVariables().forEach(var -> {
-                    // 添加变���类型
+                    // Add variable type
                     addDependency(var.getType().asString());
                     
-                    // 检查初始化表达式
+                    // Check initialization expressions
                     var.getInitializer().ifPresent(init -> {
                         init.findAll(com.github.javaparser.ast.expr.ObjectCreationExpr.class)
                             .forEach(expr -> addDependency(expr.getType().asString()));
@@ -198,18 +198,18 @@ public class ClassDependencyAnalyzer {
                 });
             });
 
-            // 收集方法中的依赖
+            // Collect method dependencies
             n.getMethods().forEach(method -> {
-                // 方法返回类型
+                // Method return type
                 addDependency(method.getType().asString());
                 
-                // 方法参数类型
+                // Method parameter types
                 method.getParameters().forEach(param -> 
                     addDependency(param.getType().asString()));
 
-                // 方法体中的类型引用
+                // Type references in method body
                 method.getBody().ifPresent(body -> {
-                    // 收集方法调用中的类型
+                    // Collect types from method calls
                     body.findAll(com.github.javaparser.ast.expr.MethodCallExpr.class)
                         .forEach(call -> {
                             if (call.getScope().isPresent()) {
@@ -217,11 +217,11 @@ public class ClassDependencyAnalyzer {
                             }
                         });
 
-                    // 收集对象创建表达式
+                    // Collect object creation expressions
                     body.findAll(com.github.javaparser.ast.expr.ObjectCreationExpr.class)
                         .forEach(expr -> addDependency(expr.getType().asString()));
 
-                    // 收集变量声明中的类型
+                    // Collect types from variable declarations
                     body.findAll(com.github.javaparser.ast.expr.VariableDeclarationExpr.class)
                         .forEach(var -> var.getVariables().forEach(v -> 
                             addDependency(v.getType().asString())));
@@ -241,7 +241,7 @@ public class ClassDependencyAnalyzer {
                 return;
             }
 
-            // 如果是简单类名，添加当前包名
+            // If it's a simple class name, add current package name
             if (!typeName.contains(".")) {
                 typeName = currentPackage + "." + typeName;
             }
