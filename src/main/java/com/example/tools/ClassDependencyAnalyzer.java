@@ -15,7 +15,8 @@ import java.util.*;
 public class ClassDependencyAnalyzer {
     private final Set<String> allClasses = new HashSet<>();
     private final Map<String, Set<String>> dependencyGraph = new HashMap<>();
-    private final Set<String> classesToDelete = new HashSet<>();
+    private final Map<String, Path> classToPathMap = new HashMap<>();
+    private final Map<String, String> classesToDelete = new HashMap<>();
 
     public void analyzeAndDeleteClass(String rootPath, String targetClassName) throws IOException {
         // 1. Scan all Java files
@@ -50,8 +51,13 @@ public class ClassDependencyAnalyzer {
                         try {
                             CompilationUnit cu = new JavaParser().parse(file).getResult().orElse(null);
                             if (cu != null) {
-                                cu.findAll(ClassOrInterfaceDeclaration.class).forEach(c -> 
-                                    allClasses.add(c.getFullyQualifiedName().orElse("")));
+                                cu.findAll(ClassOrInterfaceDeclaration.class).forEach(c -> {
+                                    String className = c.getFullyQualifiedName().orElse("");
+                                    if (!className.isEmpty()) {
+                                        allClasses.add(className);
+                                        classToPathMap.put(className, file.toPath());
+                                    }
+                                });
                             }
                         } catch (IOException e) {
                             e.printStackTrace();
@@ -83,6 +89,7 @@ public class ClassDependencyAnalyzer {
                 
                 if (!className.isEmpty()) {
                     dependencyGraph.put(className, visitor.getDependencies());
+                    classToPathMap.put(className, javaFile);
                 }
             }
         } catch (IOException e) {
@@ -133,14 +140,18 @@ public class ClassDependencyAnalyzer {
 
             if (onlyUsedByTargetTree) {
                 System.out.println("=> Marked for deletion");
-                classesToDelete.add(dependency);
+                Path filePath = classToPathMap.get(dependency);
+                if (filePath != null) {
+                    classesToDelete.put(dependency, filePath.toString());
+                    System.out.println("   File: " + filePath);
+                }
             } else {
                 System.out.println("=> Kept (used by classes outside target tree)");
             }
         }
 
         // Remove tool classes from deletion list
-        classesToDelete.removeIf(className -> 
+        classesToDelete.keySet().removeIf(className -> 
             className.startsWith("com.example.tools."));
     }
 
@@ -157,9 +168,8 @@ public class ClassDependencyAnalyzer {
     }
 
     private void deleteClasses(String rootPath) throws IOException {
-        for (String className : classesToDelete) {
-            String relativePath = className.replace('.', '/') + ".java";
-            Path classFile = Paths.get(rootPath, relativePath);
+        for (Map.Entry<String, String> entry : classesToDelete.entrySet()) {
+            Path classFile = Paths.get(entry.getValue());
             if (Files.exists(classFile)) {
                 Files.delete(classFile);
                 System.out.println("Deleted class file: " + classFile);
