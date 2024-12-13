@@ -76,11 +76,14 @@ public class ClassDependencyAnalyzer {
                 visitor.visit(cu, null);
                 
                 String className = cu.getPrimaryType()
+                    .filter(type -> type.isClassOrInterfaceDeclaration())
                     .map(type -> type.asClassOrInterfaceDeclaration())
                     .map(c -> c.getFullyQualifiedName().orElse(""))
                     .orElse("");
                 
-                dependencyGraph.put(className, visitor.getDependencies());
+                if (!className.isEmpty()) {
+                    dependencyGraph.put(className, visitor.getDependencies());
+                }
             }
         } catch (IOException e) {
             e.printStackTrace();
