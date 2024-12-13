@@ -149,9 +149,22 @@ public class ClassDependencyAnalyzer {
 
         @Override
         public void visit(ClassOrInterfaceDeclaration n, Void arg) {
-            // 收集类的依赖关系
+            // 收集继承和实现的接口
             n.getExtendedTypes().forEach(t -> dependencies.add(t.getNameAsString()));
             n.getImplementedTypes().forEach(t -> dependencies.add(t.getNameAsString()));
+            
+            // 收集字段类型
+            n.getFields().forEach(field -> 
+                field.getVariables().forEach(var -> 
+                    dependencies.add(var.getType().asString())));
+            
+            // 收集方法参数和返回类型
+            n.getMethods().forEach(method -> {
+                dependencies.add(method.getType().asString());
+                method.getParameters().forEach(param -> 
+                    dependencies.add(param.getType().asString()));
+            });
+            
             super.visit(n, arg);
         }
     }
