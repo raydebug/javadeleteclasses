@@ -9,6 +9,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
 public class ClassDependencyAnalyzer {
@@ -62,7 +63,7 @@ public class ClassDependencyAnalyzer {
     }
 
     private void buildDependencyGraph(String rootPath) throws IOException {
-        Files.walk(Path.of(rootPath))
+        Files.walk(Paths.get(rootPath))
             .filter(p -> p.toString().endsWith(".java"))
             .forEach(this::analyzeDependencies);
     }
@@ -93,7 +94,7 @@ public class ClassDependencyAnalyzer {
         classesToDelete.add(targetClassName);
 
         // 构建反向依赖图
-        System.out.println("构建反向依赖���...");
+        System.out.println("构建反向依赖图...");
         Map<String, Set<String>> reverseDependencies = new HashMap<>();
         for (Map.Entry<String, Set<String>> entry : dependencyGraph.entrySet()) {
             String className = entry.getKey();
@@ -155,7 +156,7 @@ public class ClassDependencyAnalyzer {
     private void deleteClasses(String rootPath) throws IOException {
         for (String className : classesToDelete) {
             String relativePath = className.replace('.', '/') + ".java";
-            Path classFile = Path.of(rootPath, relativePath);
+            Path classFile = Paths.get(rootPath, relativePath);
             if (Files.exists(classFile)) {
                 Files.delete(classFile);
                 System.out.println("已删除类文件: " + classFile);
@@ -184,7 +185,7 @@ public class ClassDependencyAnalyzer {
 
                 // 获取字段初始化中的类型
                 field.getVariables().forEach(var -> {
-                    // 添加变量类型
+                    // 添加变���类型
                     addDependency(var.getType().asString());
                     
                     // 检查初始化表达式
