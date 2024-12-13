@@ -101,7 +101,10 @@ public class ClassDependencyAnalyzer {
         Set<String> visited = new HashSet<>();
         Queue<String> queue = new LinkedList<>();
         queue.offer(targetClassName);
-        classesToDelete.add(targetClassName);
+        Path targetPath = classToPathMap.get(targetClassName);
+        if (targetPath != null) {
+            classesToDelete.put(targetClassName, targetPath.toString());
+        }
 
         // Build reverse dependency graph
         System.out.println("Building reverse dependency graph...");
