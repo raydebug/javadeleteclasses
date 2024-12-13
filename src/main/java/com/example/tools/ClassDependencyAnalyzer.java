@@ -84,31 +84,38 @@ public class ClassDependencyAnalyzer {
         queue.offer(targetClassName);
         classesToDelete.add(targetClassName);
 
+        // 找出所有被目标类直接或间接依赖的类
         while (!queue.isEmpty()) {
             String currentClass = queue.poll();
             if (visited.contains(currentClass)) continue;
             visited.add(currentClass);
 
-            // 找出只被当前类使用的类
-            for (Map.Entry<String, Set<String>> entry : dependencyGraph.entrySet()) {
-                String dependentClass = entry.getKey();
-                if (classesToDelete.contains(dependentClass)) continue;
-
-                boolean onlyUsedByDeletedClasses = true;
-                for (Map.Entry<String, Set<String>> otherEntry : dependencyGraph.entrySet()) {
-                    if (!classesToDelete.contains(otherEntry.getKey()) && 
-                        otherEntry.getValue().contains(dependentClass)) {
-                        onlyUsedByDeletedClasses = false;
-                        break;
+            Set<String> dependencies = dependencyGraph.get(currentClass);
+            if (dependencies != null) {
+                for (String dependency : dependencies) {
+                    // 检查这个依赖类是否只被要删除的类使用
+                    boolean onlyUsedByTargetClass = true;
+                    for (Map.Entry<String, Set<String>> entry : dependencyGraph.entrySet()) {
+                        // 如果这个类不是要删除的类，并且它使用了这个依赖
+                        if (!classesToDelete.contains(entry.getKey()) && 
+                            entry.getValue().contains(dependency)) {
+                            onlyUsedByTargetClass = false;
+                            break;
+                        }
                     }
-                }
-
-                if (onlyUsedByDeletedClasses) {
-                    classesToDelete.add(dependentClass);
-                    queue.offer(dependentClass);
+                    
+                    // 如果这个依赖类只被目标类使用，则也需要删除它
+                    if (onlyUsedByTargetClass && !classesToDelete.contains(dependency)) {
+                        classesToDelete.add(dependency);
+                        queue.offer(dependency);
+                    }
                 }
             }
         }
+        
+        // 从删除列表中移除工具类
+        classesToDelete.removeIf(className -> 
+            className.startsWith("com.example.tools."));
     }
 
     private void deleteClasses(String rootPath) throws IOException {
