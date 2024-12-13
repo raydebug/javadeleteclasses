@@ -150,22 +150,43 @@ public class ClassDependencyAnalyzer {
         @Override
         public void visit(ClassOrInterfaceDeclaration n, Void arg) {
             // 收集继承和实现的接口
-            n.getExtendedTypes().forEach(t -> dependencies.add(t.getNameAsString()));
-            n.getImplementedTypes().forEach(t -> dependencies.add(t.getNameAsString()));
+            n.getExtendedTypes().forEach(t -> addDependency(t.resolve().getQualifiedName()));
+            n.getImplementedTypes().forEach(t -> addDependency(t.resolve().getQualifiedName()));
             
             // 收集字段类型
             n.getFields().forEach(field -> 
-                field.getVariables().forEach(var -> 
-                    dependencies.add(var.getType().asString())));
+                field.getVariables().forEach(var -> {
+                    try {
+                        String qualifiedName = var.getType().resolve().describe();
+                        addDependency(qualifiedName);
+                    } catch (Exception e) {
+                        // 如果无法解析，使用简单类名
+                        addDependency(var.getType().asString());
+                    }
+                }));
             
             // 收集方法参数和返回类型
             n.getMethods().forEach(method -> {
-                dependencies.add(method.getType().asString());
-                method.getParameters().forEach(param -> 
-                    dependencies.add(param.getType().asString()));
+                try {
+                    addDependency(method.getType().resolve().describe());
+                    method.getParameters().forEach(param -> 
+                        addDependency(param.getType().resolve().describe()));
+                } catch (Exception e) {
+                    // 如果无法解析，使用简单类名
+                    addDependency(method.getType().asString());
+                    method.getParameters().forEach(param -> 
+                        addDependency(param.getType().asString()));
+                }
             });
             
             super.visit(n, arg);
+        }
+
+        private void addDependency(String typeName) {
+            // 只添加项目中的类，忽略Java标准库类
+            if (!typeName.startsWith("java.") && !typeName.startsWith("javax.")) {
+                dependencies.add(typeName);
+            }
         }
     }
 } 
