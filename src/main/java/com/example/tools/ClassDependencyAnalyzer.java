@@ -165,68 +165,78 @@ public class ClassDependencyAnalyzer {
 
     private static class DependencyVisitor extends VoidVisitorAdapter<Void> {
         private final Set<String> dependencies = new HashSet<>();
+        private String currentPackage = "";  // 添加当前包名
 
-        public Set<String> getDependencies() {
-            return dependencies;
+        @Override
+        public void visit(CompilationUnit n, Void arg) {
+            // 获取当前包名
+            n.getPackageDeclaration().ifPresent(pkg -> 
+                currentPackage = pkg.getNameAsString());
+            super.visit(n, arg);
         }
 
         @Override
         public void visit(ClassOrInterfaceDeclaration n, Void arg) {
-            // 收集继承和实现的接口
-            n.getExtendedTypes().forEach(t -> {
-                try {
-                    addDependency(t.resolve().describe());
-                } catch (Exception e) {
-                    addDependency(t.getNameAsString());
-                }
-            });
-            
-            n.getImplementedTypes().forEach(t -> {
-                try {
-                    addDependency(t.resolve().describe());
-                } catch (Exception e) {
-                    addDependency(t.getNameAsString());
-                }
-            });
-            
             // 收集字段类型
-            n.getFields().forEach(field -> 
-                field.getVariables().forEach(var -> {
-                    try {
-                        String qualifiedName = var.getType().resolve().describe();
-                        addDependency(qualifiedName);
-                    } catch (Exception e) {
-                        // 如果无法解析，使用简单类名
-                        addDependency(var.getType().asString());
-                    }
-                }));
+            n.getFields().forEach(field -> {
+                String typeName = field.getCommonType().asString();
+                addDependency(typeName);
+                
+                // 检查字段初始化
+                field.getVariables().forEach(var -> 
+                    var.getInitializer().ifPresent(init -> {
+                        // 检查 new 表达式
+                        init.findAll(com.github.javaparser.ast.expr.ObjectCreationExpr.class)
+                            .forEach(expr -> addDependency(expr.getType().asString()));
+                    }));
+            });
             
-            // 收集方法参数和返回类型
+            // 收集方法中的类型引用
             n.getMethods().forEach(method -> {
-                try {
-                    addDependency(method.getType().resolve().describe());
-                    method.getParameters().forEach(param -> {
-                        try {
-                            addDependency(param.getType().resolve().describe());
-                        } catch (Exception e) {
-                            addDependency(param.getType().asString());
-                        }
-                    });
-                } catch (Exception e) {
-                    addDependency(method.getType().asString());
-                    method.getParameters().forEach(param -> 
-                        addDependency(param.getType().asString()));
-                }
+                // 返回类型
+                addDependency(method.getType().asString());
+                
+                // 参数类型
+                method.getParameters().forEach(param -> 
+                    addDependency(param.getType().asString()));
+                
+                // 方法体中的 new 表达式
+                method.getBody().ifPresent(body -> 
+                    body.findAll(com.github.javaparser.ast.expr.ObjectCreationExpr.class)
+                        .forEach(expr -> addDependency(expr.getType().asString())));
             });
             
             super.visit(n, arg);
         }
 
         private void addDependency(String typeName) {
-            // 只添加项目中的类，忽略Java标准库类
-            if (!typeName.startsWith("java.") && !typeName.startsWith("javax.")) {
-                dependencies.add(typeName);
+            // 忽略基本类型和void
+            if (typeName.equals("void") || isPrimitiveType(typeName)) {
+                return;
             }
+
+            // 忽略Java标准库类
+            if (typeName.startsWith("java.") || typeName.startsWith("javax.")) {
+                return;
+            }
+
+            // 如果是简单类名，添加当前包名
+            if (!typeName.contains(".")) {
+                typeName = currentPackage + "." + typeName;
+            }
+
+            dependencies.add(typeName);
+        }
+
+        private boolean isPrimitiveType(String typeName) {
+            return typeName.equals("int") || typeName.equals("long") || 
+                   typeName.equals("double") || typeName.equals("float") ||
+                   typeName.equals("boolean") || typeName.equals("byte") ||
+                   typeName.equals("char") || typeName.equals("short");
+        }
+
+        public Set<String> getDependencies() {
+            return dependencies;
         }
     }
 } 
