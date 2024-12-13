@@ -127,7 +127,9 @@ public class ClassDependencyAnalyzer {
             
             boolean onlyUsedByTargetTrees = true;
             for (String user : usedBy) {
-                if (!allDependenciesOfTargets.contains(user) && !targetClassNames.contains(user)) {
+                if (!allDependenciesOfTargets.contains(user) && 
+                    !targetClassNames.contains(user) && 
+                    !classesToDelete.containsKey(user)) {
                     System.out.println("Found external user: " + user);
                     onlyUsedByTargetTrees = false;
                     break;
@@ -135,7 +137,7 @@ public class ClassDependencyAnalyzer {
             }
 
             if (onlyUsedByTargetTrees) {
-                System.out.println("=> Marked for deletion");
+                System.out.println("=> Marked for deletion (only used by target classes or their dependencies)");
                 Path filePath = classToPathMap.get(dependency);
                 if (filePath != null) {
                     classesToDelete.put(dependency, filePath.toString());
