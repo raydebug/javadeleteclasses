@@ -94,23 +94,24 @@ public class ClassDependencyAnalyzer {
             }
         }
 
-        // 递归检查依赖树
-        while (!queue.isEmpty()) {
-            String currentClass = queue.poll();
-            if (visited.contains(currentClass)) continue;
-            visited.add(currentClass);
+        // 首先找出目标类的所有依赖（直接和间接的）
+        Set<String> allDependenciesOfTarget = new HashSet<>();
+        findAllDependencies(targetClassName, allDependenciesOfTarget, new HashSet<>());
 
-            // 获取当前类的所有依赖
-            Set<String> dependencies = dependencyGraph.getOrDefault(currentClass, new HashSet<>());
-            for (String dependency : dependencies) {
-                if (classesToDelete.contains(dependency)) continue;
-
-                // 检查这个依赖是否只被已标记要删除的类使用
-                Set<String> usedBy = reverseDependencies.getOrDefault(dependency, new HashSet<>());
-                if (isOnlyUsedByDeletedClasses(dependency, usedBy)) {
-                    classesToDelete.add(dependency);
-                    queue.offer(dependency);
+        // 检查每个依赖是否只被目标类及其依赖树使用
+        for (String dependency : allDependenciesOfTarget) {
+            Set<String> usedBy = reverseDependencies.getOrDefault(dependency, new HashSet<>());
+            boolean onlyUsedByTargetTree = true;
+            
+            for (String user : usedBy) {
+                if (!allDependenciesOfTarget.contains(user) && !user.equals(targetClassName)) {
+                    onlyUsedByTargetTree = false;
+                    break;
                 }
+            }
+
+            if (onlyUsedByTargetTree) {
+                classesToDelete.add(dependency);
             }
         }
 
@@ -119,19 +120,16 @@ public class ClassDependencyAnalyzer {
             className.startsWith("com.example.tools."));
     }
 
-    private boolean isOnlyUsedByDeletedClasses(String className, Set<String> usedBy) {
-        // 如果没有任何类使用这个类，也应该删除它
-        if (usedBy.isEmpty()) {
-            return true;
-        }
+    private void findAllDependencies(String className, Set<String> allDependencies, Set<String> visited) {
+        if (visited.contains(className)) return;
+        visited.add(className);
 
-        // 检查是否所有使用这个类的类都已经被标记为删除
-        for (String user : usedBy) {
-            if (!classesToDelete.contains(user)) {
-                return false;
-            }
+        Set<String> directDependencies = dependencyGraph.getOrDefault(className, new HashSet<>());
+        allDependencies.addAll(directDependencies);
+
+        for (String dependency : directDependencies) {
+            findAllDependencies(dependency, allDependencies, visited);
         }
-        return true;
     }
 
     private void deleteClasses(String rootPath) throws IOException {
