@@ -93,7 +93,7 @@ public class ClassDependencyAnalyzer {
         classesToDelete.add(targetClassName);
 
         // 构建反向依赖图
-        System.out.println("构建反向依赖图...");
+        System.out.println("构建反向依赖���...");
         Map<String, Set<String>> reverseDependencies = new HashMap<>();
         for (Map.Entry<String, Set<String>> entry : dependencyGraph.entrySet()) {
             String className = entry.getKey();
@@ -165,11 +165,10 @@ public class ClassDependencyAnalyzer {
 
     private static class DependencyVisitor extends VoidVisitorAdapter<Void> {
         private final Set<String> dependencies = new HashSet<>();
-        private String currentPackage = "";  // 添加当前包名
+        private String currentPackage = "";
 
         @Override
         public void visit(CompilationUnit n, Void arg) {
-            // 获取当前包名
             n.getPackageDeclaration().ifPresent(pkg -> 
                 currentPackage = pkg.getNameAsString());
             super.visit(n, arg);
@@ -177,45 +176,66 @@ public class ClassDependencyAnalyzer {
 
         @Override
         public void visit(ClassOrInterfaceDeclaration n, Void arg) {
-            // 收集字段类型
+            // 收集字段声明中的类型
             n.getFields().forEach(field -> {
-                String typeName = field.getCommonType().asString();
-                addDependency(typeName);
-                
-                // 检查字段初始化
-                field.getVariables().forEach(var -> 
+                // 获取字段类型
+                String fieldType = field.getElementType().asString();
+                addDependency(fieldType);
+
+                // 获取字段初始化中的类型
+                field.getVariables().forEach(var -> {
+                    // 添加变量类型
+                    addDependency(var.getType().asString());
+                    
+                    // 检查初始化表达式
                     var.getInitializer().ifPresent(init -> {
-                        // 检查 new 表达式
                         init.findAll(com.github.javaparser.ast.expr.ObjectCreationExpr.class)
                             .forEach(expr -> addDependency(expr.getType().asString()));
-                    }));
+                        init.findAll(com.github.javaparser.ast.expr.NameExpr.class)
+                            .forEach(expr -> addDependency(expr.getNameAsString()));
+                    });
+                });
             });
-            
-            // 收集方法中的类型引用
+
+            // 收集方法中的依赖
             n.getMethods().forEach(method -> {
-                // 返回类型
+                // 方法返回类型
                 addDependency(method.getType().asString());
                 
-                // 参数类型
+                // 方法参数类型
                 method.getParameters().forEach(param -> 
                     addDependency(param.getType().asString()));
-                
-                // 方法体中的 new 表达式
-                method.getBody().ifPresent(body -> 
+
+                // 方法体中的类型引用
+                method.getBody().ifPresent(body -> {
+                    // 收集方法调用中的类型
+                    body.findAll(com.github.javaparser.ast.expr.MethodCallExpr.class)
+                        .forEach(call -> {
+                            if (call.getScope().isPresent()) {
+                                addDependency(call.getScope().get().toString());
+                            }
+                        });
+
+                    // 收集对象创建表达式
                     body.findAll(com.github.javaparser.ast.expr.ObjectCreationExpr.class)
-                        .forEach(expr -> addDependency(expr.getType().asString())));
+                        .forEach(expr -> addDependency(expr.getType().asString()));
+
+                    // 收集变量声明中的类型
+                    body.findAll(com.github.javaparser.ast.expr.VariableDeclarationExpr.class)
+                        .forEach(var -> var.getVariables().forEach(v -> 
+                            addDependency(v.getType().asString())));
+                });
             });
-            
+
             super.visit(n, arg);
         }
 
         private void addDependency(String typeName) {
-            // 忽略基本类型和void
-            if (typeName.equals("void") || isPrimitiveType(typeName)) {
+            if (typeName == null || typeName.isEmpty() || 
+                typeName.equals("void") || isPrimitiveType(typeName)) {
                 return;
             }
 
-            // 忽略Java标准库类
             if (typeName.startsWith("java.") || typeName.startsWith("javax.")) {
                 return;
             }
