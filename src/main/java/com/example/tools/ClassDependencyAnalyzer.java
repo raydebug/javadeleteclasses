@@ -69,16 +69,44 @@ public class ClassDependencyAnalyzer {
     }
 
     private void buildDependencyGraph(String rootPath) throws IOException {
+        // First scan all files to build allClasses
+        System.out.println("\n=== First Pass: Scanning All Classes ===");
+        Files.walk(Paths.get(rootPath))
+            .filter(p -> p.toString().endsWith(".java"))
+            .forEach(path -> {
+                try {
+                    CompilationUnit cu = new JavaParser().parse(path).getResult().orElse(null);
+                    if (cu != null) {
+                        cu.findAll(ClassOrInterfaceDeclaration.class).forEach(c -> {
+                            String className = c.getFullyQualifiedName().orElse("");
+                            if (!className.isEmpty()) {
+                                System.out.println("Found class: " + className);
+                                allClasses.add(className);
+                                classToPathMap.put(className, path);
+                            }
+                        });
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            });
+
+        // Then analyze dependencies using complete allClasses set
+        System.out.println("\n=== Second Pass: Analyzing Dependencies ===");
         Files.walk(Paths.get(rootPath))
             .filter(p -> p.toString().endsWith(".java"))
             .forEach(this::analyzeDependencies);
+
+        System.out.println("\n=== Dependency Graph ===");
+        dependencyGraph.forEach((k, v) -> System.out.println(k + " -> " + v));
     }
 
     private void analyzeDependencies(Path javaFile) {
         try {
+            System.out.println("\nAnalyzing file: " + javaFile);
             CompilationUnit cu = new JavaParser().parse(javaFile).getResult().orElse(null);
             if (cu != null) {
-                DependencyVisitor visitor = new DependencyVisitor();
+                DependencyVisitor visitor = new DependencyVisitor(allClasses);
                 visitor.visit(cu, null);
                 
                 String className = cu.getPrimaryType()
@@ -88,6 +116,8 @@ public class ClassDependencyAnalyzer {
                     .orElse("");
                 
                 if (!className.isEmpty()) {
+                    System.out.println("Found class: " + className);
+                    System.out.println("Dependencies: " + visitor.getDependencies());
                     dependencyGraph.put(className, visitor.getDependencies());
                     classToPathMap.put(className, javaFile);
                 }
@@ -190,6 +220,11 @@ public class ClassDependencyAnalyzer {
     private static class DependencyVisitor extends VoidVisitorAdapter<Void> {
         private final Set<String> dependencies = new HashSet<>();
         private String currentPackage = "";
+        private final Set<String> allClasses;
+
+        public DependencyVisitor(Set<String> allClasses) {
+            this.allClasses = allClasses;
+        }
 
         @Override
         public void visit(CompilationUnit n, Void arg) {
@@ -264,12 +299,29 @@ public class ClassDependencyAnalyzer {
                 return;
             }
 
-            // If it's a simple class name, add current package name
+            System.out.println("  Processing type: " + typeName);
+            // For simple class names, try to find matching fully qualified name
             if (!typeName.contains(".")) {
-                typeName = currentPackage + "." + typeName;
+                System.out.println("  Searching for full name of: " + typeName);
+                System.out.println("  Project classes: " + allClasses);
+                for (String fullClassName : allClasses) {
+                    if (fullClassName.endsWith("." + typeName)) {
+                        System.out.println("  Found match in project: " + fullClassName);
+                        dependencies.add(fullClassName);
+                        return;
+                    }
+                }
+                System.out.println("  No match found in project for: " + typeName);
+                return;
             }
 
-            dependencies.add(typeName);
+            // Only add if class exists in project
+            if (allClasses.contains(typeName)) {
+                System.out.println("  Adding project dependency: " + typeName);
+                dependencies.add(typeName);
+            } else {
+                System.out.println("  Skipping non-project class: " + typeName);
+            }
         }
 
         private boolean isPrimitiveType(String typeName) {
