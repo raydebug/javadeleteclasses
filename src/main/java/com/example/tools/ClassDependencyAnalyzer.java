@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ClassDependencyAnalyzer {
     private static final int THREAD_POOL_SIZE = Runtime.getRuntime().availableProcessors();
@@ -26,25 +27,32 @@ public class ClassDependencyAnalyzer {
     private final Set<String> allClasses = ConcurrentHashMap.newKeySet();
 
     public void analyzeAndDeleteClasses(String rootPath, Set<String> targetClassNames) throws IOException {
-        // 1. Scan all Java files
-        System.out.println("\n=== Scanning Java Files ===");
+        System.out.println("Starting analysis...");
+        
+        // 1. Scan Java files
+        System.out.print("Scanning files... ");
         scanJavaFiles(new File(rootPath));
-        System.out.println("Found classes: " + allClasses);
+        System.out.println("Done");
         
         // 2. Build dependency graph
-        System.out.println("\n=== Building Dependency Graph ===");
+        System.out.print("Analyzing dependencies... ");
         buildDependencyGraph(rootPath);
-        System.out.println("Dependency graph:");
-        dependencyGraph.forEach((k, v) -> System.out.println(k + " -> " + v));
+        System.out.println("Done");
         
         // 3. Find classes to delete
-        System.out.println("\n=== Analyzing Classes to Delete ===");
+        System.out.print("Finding classes to delete... ");
         findClassesToDelete(targetClassNames);
-        System.out.println("Classes to delete: " + classesToDelete);
+        System.out.println("Done");
         
         // 4. Execute deletion
-        System.out.println("\n=== Executing Deletion ===");
-        deleteClasses(rootPath);
+        int deleteCount = classesToDelete.size();
+        if (deleteCount > 0) {
+            System.out.printf("Deleting %d classes...%n", deleteCount);
+            deleteClasses(rootPath);
+            System.out.println("Done");
+        } else {
+            System.out.println("No classes to delete");
+        }
     }
 
     private void scanJavaFiles(File directory) {
@@ -87,11 +95,14 @@ public class ClassDependencyAnalyzer {
     private void buildDependencyGraph(String rootPath) throws IOException {
         ExecutorService executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
         try {
-            // First pass: Scan all classes
             List<Path> javaFiles = Files.walk(Paths.get(rootPath))
                 .filter(p -> p.toString().endsWith(".java"))
                 .collect(Collectors.toList());
 
+            AtomicInteger processedFiles = new AtomicInteger(0);
+            int totalFiles = javaFiles.size();
+
+            // First pass: Scan all classes
             CompletableFuture<?>[] futures = javaFiles.stream()
                 .map(path -> CompletableFuture.runAsync(() -> {
                     try {
@@ -105,6 +116,7 @@ public class ClassDependencyAnalyzer {
                                 }
                             });
                         }
+                        updateProgress(processedFiles.incrementAndGet(), totalFiles);
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
@@ -114,11 +126,16 @@ public class ClassDependencyAnalyzer {
             CompletableFuture.allOf(futures).join();
 
             // Second pass: Analyze dependencies
+            processedFiles.set(0);
             futures = javaFiles.stream()
-                .map(path -> CompletableFuture.runAsync(() -> analyzeDependencies(path), executor))
+                .map(path -> CompletableFuture.runAsync(() -> {
+                    analyzeDependencies(path);
+                    updateProgress(processedFiles.incrementAndGet(), totalFiles);
+                }, executor))
                 .toArray(CompletableFuture[]::new);
 
             CompletableFuture.allOf(futures).join();
+            System.out.print("\r");  // Clear progress line
         } finally {
             shutdownExecutor(executor);
         }
@@ -126,7 +143,6 @@ public class ClassDependencyAnalyzer {
 
     private void analyzeDependencies(Path javaFile) {
         try {
-            System.out.println("\nAnalyzing file: " + javaFile);
             CompilationUnit cu = new JavaParser().parse(javaFile).getResult().orElse(null);
             if (cu != null) {
                 DependencyVisitor visitor = new DependencyVisitor(allClasses);
@@ -139,8 +155,6 @@ public class ClassDependencyAnalyzer {
                     .orElse("");
                 
                 if (!className.isEmpty()) {
-                    System.out.println("Found class: " + className);
-                    System.out.println("Dependencies: " + visitor.getDependencies());
                     dependencyGraph.put(className, visitor.getDependencies());
                     classToPathMap.put(className, javaFile);
                 }
@@ -233,13 +247,16 @@ public class ClassDependencyAnalyzer {
     private void deleteClasses(String rootPath) throws IOException {
         ExecutorService executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
         try {
+            AtomicInteger processedFiles = new AtomicInteger(0);
+            int totalFiles = classesToDelete.size();
+
             List<CompletableFuture<Void>> deleteFutures = classesToDelete.entrySet().stream()
                 .map(entry -> CompletableFuture.runAsync(() -> {
                     try {
                         Path classFile = Paths.get(entry.getValue());
                         if (Files.exists(classFile)) {
                             Files.delete(classFile);
-                            System.out.println("Deleted class file: " + classFile);
+                            updateProgress(processedFiles.incrementAndGet(), totalFiles);
                         }
                     } catch (IOException e) {
                         e.printStackTrace();
@@ -248,9 +265,15 @@ public class ClassDependencyAnalyzer {
                 .collect(Collectors.toList());
 
             CompletableFuture.allOf(deleteFutures.toArray(new CompletableFuture[0])).join();
+            System.out.println();
         } finally {
             shutdownExecutor(executor);
         }
+    }
+
+    private synchronized void updateProgress(int current, int total) {
+        int percentage = (int) ((current * 100.0) / total);
+        System.out.print("\rProgress: " + percentage + "% (" + current + "/" + total + ")");
     }
 
     private void shutdownExecutor(ExecutorService executor) {
