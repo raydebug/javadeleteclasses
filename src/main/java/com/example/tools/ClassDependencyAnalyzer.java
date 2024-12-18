@@ -189,29 +189,22 @@ public class ClassDependencyAnalyzer {
         // Check each dependency
         for (String dependency : allDependenciesOfTargets) {
             Set<String> usedBy = reverseDependencies.getOrDefault(dependency, new HashSet<>());
-            System.out.println("\nChecking dependency: " + dependency);
-            System.out.println("Used by: " + usedBy);
             
             boolean onlyUsedByTargetTrees = true;
             for (String user : usedBy) {
                 if (!allDependenciesOfTargets.contains(user) && 
                     !targetClassNames.contains(user) && 
                     !classesToDelete.containsKey(user)) {
-                    System.out.println("Found external user: " + user);
                     onlyUsedByTargetTrees = false;
                     break;
                 }
             }
 
             if (onlyUsedByTargetTrees) {
-                System.out.println("=> Marked for deletion (only used by target classes or their dependencies)");
                 Path filePath = classToPathMap.get(dependency);
                 if (filePath != null) {
                     classesToDelete.put(dependency, filePath.toString());
-                    System.out.println("   File: " + filePath);
                 }
-            } else {
-                System.out.println("=> Kept (used by classes outside target trees)");
             }
         }
 
