@@ -25,6 +25,7 @@ import java.time.format.DateTimeFormatter;
 
 public class ClassDependencyAnalyzer {
     private static final int THREAD_POOL_SIZE = Runtime.getRuntime().availableProcessors();
+    private static final boolean DEBUG_MODE = false;
     private final PrintWriter logWriter;
     private final ConcurrentHashMap<String, Set<String>> dependencyGraph = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Path> classToPathMap = new ConcurrentHashMap<>();
@@ -40,13 +41,17 @@ public class ClassDependencyAnalyzer {
     private void log(String message) {
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String logMessage = String.format("[%s] %s", timestamp, message);
-        System.out.println(logMessage);
+        if (DEBUG_MODE) {
+            System.out.println(logMessage);
+        }
         logWriter.println(logMessage);
         logWriter.flush();
     }
 
     private void logProgress(String message) {
-        System.out.print("\r" + message);
+        if (DEBUG_MODE) {
+            System.out.print("\r" + message);
+        }
         logWriter.println(message);
         logWriter.flush();
     }
