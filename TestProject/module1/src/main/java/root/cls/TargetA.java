@@ -8,4 +8,8 @@ public class TargetA {
     SharedDep sharedDep;
     TargetDep targetDep;
     TargetSharedDep targetSharedDep;
+
+    private static void createTargetNew(){
+        System.out.println(new ClassD());
+    }
 }

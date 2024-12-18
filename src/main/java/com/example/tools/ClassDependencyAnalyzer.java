@@ -174,6 +174,7 @@ public class ClassDependencyAnalyzer {
             Path targetPath = classToPathMap.get(targetClassName);
             if (targetPath != null) {
                 classesToDelete.put(targetClassName, targetPath.toString());
+                System.out.println("Target class: " + targetClassName);
             }
         }
 
@@ -191,12 +192,14 @@ public class ClassDependencyAnalyzer {
             Set<String> usedBy = reverseDependencies.getOrDefault(dependency, new HashSet<>());
             
             boolean onlyUsedByTargetTrees = true;
+            Set<String> externalUsers = new HashSet<>();
+            
             for (String user : usedBy) {
                 if (!allDependenciesOfTargets.contains(user) && 
                     !targetClassNames.contains(user) && 
                     !classesToDelete.containsKey(user)) {
                     onlyUsedByTargetTrees = false;
-                    break;
+                    externalUsers.add(user);
                 }
             }
 
@@ -204,13 +207,41 @@ public class ClassDependencyAnalyzer {
                 Path filePath = classToPathMap.get(dependency);
                 if (filePath != null) {
                     classesToDelete.put(dependency, filePath.toString());
+                    System.out.println("\nDependent class: " + dependency);
+                    System.out.println("Deletion paths:");
+                    findDeletionPaths(dependency, targetClassNames, reverseDependencies, new ArrayList<>());
                 }
             }
         }
 
         // Remove tool classes from deletion list
-        classesToDelete.keySet().removeIf(className -> 
-            className.startsWith("com.example.tools."));
+        classesToDelete.keySet().removeIf(className -> {
+            if (className.startsWith("com.example.tools.")) {
+                System.out.println("Keeping tool class: " + className);
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private void findDeletionPaths(String className, Set<String> targetClasses, 
+            Map<String, Set<String>> reverseDependencies, List<String> currentPath) {
+        currentPath.add(className);
+        
+        Set<String> users = reverseDependencies.getOrDefault(className, new HashSet<>());
+        if (users.isEmpty() || targetClasses.contains(className)) {
+            if (targetClasses.contains(className)) {
+                System.out.println("  " + String.join(" -> ", currentPath));
+            }
+        } else {
+            for (String user : users) {
+                if (!currentPath.contains(user)) {  // Avoid cycles
+                    findDeletionPaths(user, targetClasses, reverseDependencies, currentPath);
+                }
+            }
+        }
+        
+        currentPath.remove(currentPath.size() - 1);
     }
 
     private Map<String, Set<String>> buildReverseDependencyGraph() {
