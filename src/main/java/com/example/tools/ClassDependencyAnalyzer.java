@@ -195,12 +195,8 @@ public class ClassDependencyAnalyzer {
     }
 
     private void findClassesToDelete(Set<String> targetClassNames) {
-        Set<String> visited = new HashSet<>();
-        Queue<String> queue = new LinkedList<>();
-        
-        // Initialize with all target classes
+        // Initialize with target classes
         for (String targetClassName : targetClassNames) {
-            queue.offer(targetClassName);
             Path targetPath = classToPathMap.get(targetClassName);
             if (targetPath != null) {
                 classesToDelete.put(targetClassName, targetPath.toString());
@@ -217,32 +213,38 @@ public class ClassDependencyAnalyzer {
             findAllDependencies(targetClassName, allDependenciesOfTargets, new HashSet<>());
         }
 
-        // Check each dependency
-        for (String dependency : allDependenciesOfTargets) {
-            Set<String> usedBy = reverseDependencies.getOrDefault(dependency, new HashSet<>());
-            
-            boolean onlyUsedByTargetTrees = true;
-            Set<String> externalUsers = new HashSet<>();
-            
-            for (String user : usedBy) {
-                if (!allDependenciesOfTargets.contains(user) && 
-                    !targetClassNames.contains(user) && 
-                    !classesToDelete.containsKey(user)) {
-                    onlyUsedByTargetTrees = false;
-                    externalUsers.add(user);
+        // Iteratively find classes to delete
+        boolean changed;
+        do {
+            changed = false;
+            for (String dependency : allDependenciesOfTargets) {
+                if (classesToDelete.containsKey(dependency)) {
+                    continue; // Skip if already marked for deletion
                 }
-            }
 
-            if (onlyUsedByTargetTrees) {
-                Path filePath = classToPathMap.get(dependency);
-                if (filePath != null) {
-                    classesToDelete.put(dependency, filePath.toString());
-                    log("\nDependent class: " + dependency);
-                    log("Deletion paths:");
-                    findDeletionPaths(dependency, targetClassNames, reverseDependencies, new ArrayList<>());
+                Set<String> usedBy = reverseDependencies.getOrDefault(dependency, new HashSet<>());
+                boolean allUsersDeleted = true;
+                
+                // Check if all users of this dependency are either target classes or marked for deletion
+                for (String user : usedBy) {
+                    if (!targetClassNames.contains(user) && !classesToDelete.containsKey(user)) {
+                        allUsersDeleted = false;
+                        break;
+                    }
+                }
+
+                if (allUsersDeleted && !usedBy.isEmpty()) {
+                    Path filePath = classToPathMap.get(dependency);
+                    if (filePath != null) {
+                        classesToDelete.put(dependency, filePath.toString());
+                        log("\nDependent class: " + dependency);
+                        log("Deletion paths:");
+                        findDeletionPaths(dependency, targetClassNames, reverseDependencies, new ArrayList<>());
+                        changed = true;
+                    }
                 }
             }
-        }
+        } while (changed); // Continue until no more classes can be marked for deletion
 
         // Remove tool classes from deletion list
         classesToDelete.keySet().removeIf(className -> {
