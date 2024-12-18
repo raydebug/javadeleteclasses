@@ -18,40 +18,65 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.io.PrintWriter;
+import java.io.FileWriter;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 public class ClassDependencyAnalyzer {
     private static final int THREAD_POOL_SIZE = Runtime.getRuntime().availableProcessors();
+    private final PrintWriter logWriter;
     private final ConcurrentHashMap<String, Set<String>> dependencyGraph = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Path> classToPathMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> classesToDelete = new ConcurrentHashMap<>();
     private final Set<String> allClasses = ConcurrentHashMap.newKeySet();
 
+    public ClassDependencyAnalyzer() throws IOException {
+        String logFile = "deletion_analysis_" + 
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".log";
+        this.logWriter = new PrintWriter(new FileWriter(logFile, true));
+    }
+
+    private void log(String message) {
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String logMessage = String.format("[%s] %s", timestamp, message);
+        System.out.println(logMessage);
+        logWriter.println(logMessage);
+        logWriter.flush();
+    }
+
+    private void logProgress(String message) {
+        System.out.print("\r" + message);
+        logWriter.println(message);
+        logWriter.flush();
+    }
+
     public void analyzeAndDeleteClasses(String rootPath, Set<String> targetClassNames) throws IOException {
-        System.out.println("Starting analysis...");
-        
-        // 1. Scan Java files
-        System.out.print("Scanning files... ");
-        scanJavaFiles(new File(rootPath));
-        System.out.println("Done");
-        
-        // 2. Build dependency graph
-        System.out.print("Analyzing dependencies... ");
-        buildDependencyGraph(rootPath);
-        System.out.println("Done");
-        
-        // 3. Find classes to delete
-        System.out.print("Finding classes to delete... ");
-        findClassesToDelete(targetClassNames);
-        System.out.println("Done");
-        
-        // 4. Execute deletion
-        int deleteCount = classesToDelete.size();
-        if (deleteCount > 0) {
-            System.out.printf("Deleting %d classes...%n", deleteCount);
-            deleteClasses(rootPath);
-            System.out.println("Done");
-        } else {
-            System.out.println("No classes to delete");
+        try {
+            log("Starting analysis...");
+            
+            log("Scanning files... ");
+            scanJavaFiles(new File(rootPath));
+            log("Done");
+            
+            log("Analyzing dependencies... ");
+            buildDependencyGraph(rootPath);
+            log("Done");
+            
+            log("Finding classes to delete... ");
+            findClassesToDelete(targetClassNames);
+            log("Done");
+            
+            int deleteCount = classesToDelete.size();
+            if (deleteCount > 0) {
+                log(String.format("Deleting %d classes...", deleteCount));
+                deleteClasses(rootPath);
+                log("Done");
+            } else {
+                log("No classes to delete");
+            }
+        } finally {
+            logWriter.close();
         }
     }
 
@@ -135,7 +160,7 @@ public class ClassDependencyAnalyzer {
                 .toArray(CompletableFuture[]::new);
 
             CompletableFuture.allOf(futures).join();
-            System.out.print("\r");  // Clear progress line
+            logProgress("Done");
         } finally {
             shutdownExecutor(executor);
         }
@@ -174,7 +199,7 @@ public class ClassDependencyAnalyzer {
             Path targetPath = classToPathMap.get(targetClassName);
             if (targetPath != null) {
                 classesToDelete.put(targetClassName, targetPath.toString());
-                System.out.println("Target class: " + targetClassName);
+                log("Target class: " + targetClassName);
             }
         }
 
@@ -207,8 +232,8 @@ public class ClassDependencyAnalyzer {
                 Path filePath = classToPathMap.get(dependency);
                 if (filePath != null) {
                     classesToDelete.put(dependency, filePath.toString());
-                    System.out.println("\nDependent class: " + dependency);
-                    System.out.println("Deletion paths:");
+                    log("\nDependent class: " + dependency);
+                    log("Deletion paths:");
                     findDeletionPaths(dependency, targetClassNames, reverseDependencies, new ArrayList<>());
                 }
             }
@@ -217,7 +242,7 @@ public class ClassDependencyAnalyzer {
         // Remove tool classes from deletion list
         classesToDelete.keySet().removeIf(className -> {
             if (className.startsWith("com.example.tools.")) {
-                System.out.println("Keeping tool class: " + className);
+                log("Keeping tool class: " + className);
                 return true;
             }
             return false;
@@ -231,7 +256,7 @@ public class ClassDependencyAnalyzer {
         Set<String> users = reverseDependencies.getOrDefault(className, new HashSet<>());
         if (users.isEmpty() || targetClasses.contains(className)) {
             if (targetClasses.contains(className)) {
-                System.out.println("  " + String.join(" -> ", currentPath));
+                log("  " + String.join(" -> ", currentPath));
             }
         } else {
             for (String user : users) {
@@ -289,7 +314,7 @@ public class ClassDependencyAnalyzer {
                 .collect(Collectors.toList());
 
             CompletableFuture.allOf(deleteFutures.toArray(new CompletableFuture[0])).join();
-            System.out.println();
+            logProgress("Done");
         } finally {
             shutdownExecutor(executor);
         }
@@ -297,7 +322,7 @@ public class ClassDependencyAnalyzer {
 
     private synchronized void updateProgress(int current, int total) {
         int percentage = (int) ((current * 100.0) / total);
-        System.out.print("\rProgress: " + percentage + "% (" + current + "/" + total + ")");
+        logProgress(String.format("Progress: %d%% (%d/%d)", percentage, current, total));
     }
 
     private void shutdownExecutor(ExecutorService executor) {
@@ -394,27 +419,27 @@ public class ClassDependencyAnalyzer {
                 return;
             }
 
-            System.out.println("  Processing type: " + typeName);
+            log("  Processing type: " + typeName);
             // For simple class names, try to find matching fully qualified name
             if (!typeName.contains(".")) {
-                System.out.println("  Searching for full name of: " + typeName);
+                log("  Searching for full name of: " + typeName);
                 for (String fullClassName : allClasses) {
                     if (fullClassName.endsWith("." + typeName)) {
-                        System.out.println("  Found match in project: " + fullClassName);
+                        log("  Found match in project: " + fullClassName);
                         dependencies.add(fullClassName);
                         return;
                     }
                 }
-                System.out.println("  No match found in project for: " + typeName);
+                log("  No match found in project for: " + typeName);
                 return;
             }
 
             // Only add if class exists in project
             if (allClasses.contains(typeName)) {
-                System.out.println("  Adding project dependency: " + typeName);
+                log("  Adding project dependency: " + typeName);
                 dependencies.add(typeName);
             } else {
-                System.out.println("  Skipping non-project class: " + typeName);
+                log("  Skipping non-project class: " + typeName);
             }
         }
 
@@ -427,6 +452,17 @@ public class ClassDependencyAnalyzer {
 
         public Set<String> getDependencies() {
             return dependencies;
+        }
+    }
+
+    @Override
+    protected void finalize() throws Throwable {
+        try {
+            if (logWriter != null) {
+                logWriter.close();
+            }
+        } finally {
+            super.finalize();
         }
     }
 } 
