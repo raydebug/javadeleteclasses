@@ -419,27 +419,19 @@ public class ClassDependencyAnalyzer {
                 return;
             }
 
-            log("  Processing type: " + typeName);
-            // For simple class names, try to find matching fully qualified name
             if (!typeName.contains(".")) {
-                log("  Searching for full name of: " + typeName);
                 for (String fullClassName : allClasses) {
                     if (fullClassName.endsWith("." + typeName)) {
-                        log("  Found match in project: " + fullClassName);
                         dependencies.add(fullClassName);
                         return;
                     }
                 }
-                log("  No match found in project for: " + typeName);
                 return;
             }
 
             // Only add if class exists in project
             if (allClasses.contains(typeName)) {
-                log("  Adding project dependency: " + typeName);
                 dependencies.add(typeName);
-            } else {
-                log("  Skipping non-project class: " + typeName);
             }
         }
 
