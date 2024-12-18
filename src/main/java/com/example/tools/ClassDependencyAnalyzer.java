@@ -367,7 +367,6 @@ public class ClassDependencyAnalyzer {
             // For simple class names, try to find matching fully qualified name
             if (!typeName.contains(".")) {
                 System.out.println("  Searching for full name of: " + typeName);
-                System.out.println("  Project classes: " + allClasses);
                 for (String fullClassName : allClasses) {
                     if (fullClassName.endsWith("." + typeName)) {
                         System.out.println("  Found match in project: " + fullClassName);
