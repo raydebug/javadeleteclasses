@@ -11,12 +11,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 public class ClassDependencyAnalyzer {
-    private final Set<String> allClasses = new HashSet<>();
-    private final Map<String, Set<String>> dependencyGraph = new HashMap<>();
-    private final Map<String, Path> classToPathMap = new HashMap<>();
-    private final Map<String, String> classesToDelete = new HashMap<>();
+    private static final int THREAD_POOL_SIZE = Runtime.getRuntime().availableProcessors();
+    private final ConcurrentHashMap<String, Set<String>> dependencyGraph = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Path> classToPathMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> classesToDelete = new ConcurrentHashMap<>();
+    private final Set<String> allClasses = ConcurrentHashMap.newKeySet();
 
     public void analyzeAndDeleteClasses(String rootPath, Set<String> targetClassNames) throws IOException {
         // 1. Scan all Java files
@@ -44,61 +51,77 @@ public class ClassDependencyAnalyzer {
         if (directory.isDirectory()) {
             File[] files = directory.listFiles();
             if (files != null) {
-                for (File file : files) {
-                    if (file.isDirectory()) {
-                        scanJavaFiles(file);
-                    } else if (file.getName().endsWith(".java")) {
-                        try {
-                            CompilationUnit cu = new JavaParser().parse(file).getResult().orElse(null);
-                            if (cu != null) {
-                                cu.findAll(ClassOrInterfaceDeclaration.class).forEach(c -> {
-                                    String className = c.getFullyQualifiedName().orElse("");
-                                    if (!className.isEmpty()) {
-                                        allClasses.add(className);
-                                        classToPathMap.put(className, file.toPath());
+                ExecutorService executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
+                try {
+                    Arrays.stream(files)
+                        .parallel()
+                        .forEach(file -> {
+                            if (file.isDirectory()) {
+                                scanJavaFiles(file);
+                            } else if (file.getName().endsWith(".java")) {
+                                executor.submit(() -> {
+                                    try {
+                                        CompilationUnit cu = new JavaParser().parse(file).getResult().orElse(null);
+                                        if (cu != null) {
+                                            cu.findAll(ClassOrInterfaceDeclaration.class).forEach(c -> {
+                                                String className = c.getFullyQualifiedName().orElse("");
+                                                if (!className.isEmpty()) {
+                                                    allClasses.add(className);
+                                                    classToPathMap.put(className, file.toPath());
+                                                }
+                                            });
+                                        }
+                                    } catch (IOException e) {
+                                        e.printStackTrace();
                                     }
                                 });
                             }
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
+                        });
+                } finally {
+                    shutdownExecutor(executor);
                 }
             }
         }
     }
 
     private void buildDependencyGraph(String rootPath) throws IOException {
-        // First scan all files to build allClasses
-        System.out.println("\n=== First Pass: Scanning All Classes ===");
-        Files.walk(Paths.get(rootPath))
-            .filter(p -> p.toString().endsWith(".java"))
-            .forEach(path -> {
-                try {
-                    CompilationUnit cu = new JavaParser().parse(path).getResult().orElse(null);
-                    if (cu != null) {
-                        cu.findAll(ClassOrInterfaceDeclaration.class).forEach(c -> {
-                            String className = c.getFullyQualifiedName().orElse("");
-                            if (!className.isEmpty()) {
-                                System.out.println("Found class: " + className);
-                                allClasses.add(className);
-                                classToPathMap.put(className, path);
-                            }
-                        });
+        ExecutorService executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
+        try {
+            // First pass: Scan all classes
+            List<Path> javaFiles = Files.walk(Paths.get(rootPath))
+                .filter(p -> p.toString().endsWith(".java"))
+                .collect(Collectors.toList());
+
+            CompletableFuture<?>[] futures = javaFiles.stream()
+                .map(path -> CompletableFuture.runAsync(() -> {
+                    try {
+                        CompilationUnit cu = new JavaParser().parse(path).getResult().orElse(null);
+                        if (cu != null) {
+                            cu.findAll(ClassOrInterfaceDeclaration.class).forEach(c -> {
+                                String className = c.getFullyQualifiedName().orElse("");
+                                if (!className.isEmpty()) {
+                                    allClasses.add(className);
+                                    classToPathMap.put(className, path);
+                                }
+                            });
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
                     }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            });
+                }, executor))
+                .toArray(CompletableFuture[]::new);
 
-        // Then analyze dependencies using complete allClasses set
-        System.out.println("\n=== Second Pass: Analyzing Dependencies ===");
-        Files.walk(Paths.get(rootPath))
-            .filter(p -> p.toString().endsWith(".java"))
-            .forEach(this::analyzeDependencies);
+            CompletableFuture.allOf(futures).join();
 
-        System.out.println("\n=== Dependency Graph ===");
-        dependencyGraph.forEach((k, v) -> System.out.println(k + " -> " + v));
+            // Second pass: Analyze dependencies
+            futures = javaFiles.stream()
+                .map(path -> CompletableFuture.runAsync(() -> analyzeDependencies(path), executor))
+                .toArray(CompletableFuture[]::new);
+
+            CompletableFuture.allOf(futures).join();
+        } finally {
+            shutdownExecutor(executor);
+        }
     }
 
     private void analyzeDependencies(Path javaFile) {
@@ -208,12 +231,37 @@ public class ClassDependencyAnalyzer {
     }
 
     private void deleteClasses(String rootPath) throws IOException {
-        for (Map.Entry<String, String> entry : classesToDelete.entrySet()) {
-            Path classFile = Paths.get(entry.getValue());
-            if (Files.exists(classFile)) {
-                Files.delete(classFile);
-                System.out.println("Deleted class file: " + classFile);
+        ExecutorService executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
+        try {
+            List<CompletableFuture<Void>> deleteFutures = classesToDelete.entrySet().stream()
+                .map(entry -> CompletableFuture.runAsync(() -> {
+                    try {
+                        Path classFile = Paths.get(entry.getValue());
+                        if (Files.exists(classFile)) {
+                            Files.delete(classFile);
+                            System.out.println("Deleted class file: " + classFile);
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }, executor))
+                .collect(Collectors.toList());
+
+            CompletableFuture.allOf(deleteFutures.toArray(new CompletableFuture[0])).join();
+        } finally {
+            shutdownExecutor(executor);
+        }
+    }
+
+    private void shutdownExecutor(ExecutorService executor) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
             }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
